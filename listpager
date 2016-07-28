@@ -4,31 +4,9 @@ require 'curses'
 require 'socket'
 require 'optparse'
 
-$pair = 1
-
-def alloc_colorpair(fg, bg)
-  $pair += 1
-  Curses.init_pair($pair, fg, bg)
-  $pair
-end
-
-def key_name(v)
-  m = {
-    10  => 'enter',
-    260 => 'left',
-    261 => 'right',
-    127 => 'backspace',
-    330 => 'delete',
-    ' ' => 'space',
-  }
-  m[v] || v
-end
-
 class Scrollbar
   DOWN_ARROW = '▼'
   UP_ARROW   = '▲'
-  BACKGROUND = ' '
-  THUMB      = ' '
 
   attr_reader :list
 
@@ -44,30 +22,13 @@ class Scrollbar
     @color_thumb = 5
     Curses.init_pair(@color_thumb, Curses::COLOR_WHITE, Curses::COLOR_WHITE)
 
-    @color_enabled_arrow = 6
-    Curses.init_pair(@color_enabled_arrow, Curses::COLOR_WHITE, Curses::COLOR_BLACK)
-    @color_disabled_arrow = @color_enabled_arrow
+    @color_arrow = 6
+    Curses.init_pair(@color_arrow, Curses::COLOR_WHITE, Curses::COLOR_BLACK)
   end
 
-  def render
-    return if list.values.size <= window.maxy
-
-    window.color_set(can_scroll_up? ? @color_enabled_arrow : @color_disabled_arrow)
-    window.setpos(0, window.maxx - 1)
-    window.addstr(UP_ARROW)
-
-    window.color_set(can_scroll_down? ? @color_enabled_arrow : @color_disabled_arrow)
-    window.setpos(window.maxy - 1, window.maxx - 1)
-    window.addstr(DOWN_ARROW)
-
-    window.color_set(@color_background)
-    (1...window.maxy-1).each do |y|
-      window.setpos(y, window.maxx - 1)
-      window.addstr(BACKGROUND)
-    end
-
-
+  def scroll_thumb_range
     # Ref: http://csdgn.org/inform/scrollbar-mechanics
+    #  using original variableNames for clarity.
     contentSize = list.values.size.to_f
     windowSize = window.maxy.to_f
     trackSize = windowSize - 2
@@ -99,10 +60,29 @@ class Scrollbar
       @last = [st, e]
     end
 
-    window.color_set(@color_thumb)
-    (st...e).each do |y|
+    return st...e
+  end
+
+  def render
+    return if list.values.size <= window.maxy
+
+    window.color_set(@color_arrow)
+    window.setpos(0, window.maxx - 1)
+    window.addstr(UP_ARROW)
+
+    window.setpos(window.maxy - 1, window.maxx - 1)
+    window.addstr(DOWN_ARROW)
+
+    window.color_set(@color_background)
+    (1...window.maxy-1).each do |y|
       window.setpos(y, window.maxx - 1)
-      window.addstr(THUMB)
+      window.addstr(' ')
+    end
+
+    window.color_set(@color_thumb)
+    scroll_thumb_range.each do |y|
+      window.setpos(y, window.maxx - 1)
+      window.addstr(' ')
     end
   end
 
@@ -196,12 +176,28 @@ class List
     @selected
   end
 
+  def key_name(v)
+    @m ||= {
+      10  => 'enter',
+      260 => 'left',
+      261 => 'right',
+      127 => 'backspace',
+      330 => 'delete',
+      ' ' => 'space',
+    }
+    @m[v] || v
+  end
+
   def handle_input(value)
     case value
       when Curses::KEY_UP
         self.selected -= 1
       when Curses::KEY_DOWN
         self.selected += 1
+      when Curses::KEY_PPAGE
+        self.selected -= window.maxy - 1
+      when Curses::KEY_NPAGE
+        self.selected += window.maxy - 1
       else
         key_pressed(value)
     end
@@ -286,10 +282,12 @@ class ClientTerminal
     @list.lock do
       res = IO.select([@socket], [], [], 0.025)
       if res && (readers = res[0]) && (rd = readers[0])
-        begin
-          @buffer << rd.read_nonblock(512)
-        rescue IO::WaitReadable
-          # pass
+        loop do
+          begin
+            @buffer << rd.read_nonblock(512)
+          rescue IO::WaitReadable
+            break
+          end
         end
       end
 
@@ -330,9 +328,8 @@ com = UNIXSocket.pair
 com.map {|c| c.sync=true }
 
 child = fork do
-  # Ruby curses doens't have newterm, so we have to reopen
-  # stdin/stdout to a TTY and communicate with the parent
-  # over a pipe
+  # All of this fd fiddling stuff is because Ruby curses doesn't expose
+  # newterm()
   STDIN.reopen('/dev/tty', 'r')
   STDOUT.reopen('/dev/tty', 'w')
 

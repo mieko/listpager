@@ -49,7 +49,7 @@ be more functional, I'd like to add a few features:
   * A search/filter activated with the `/` key
   * Maybe a title, but I'm not trying to turn it into `dialog`
   * Mouse support, with scroll wheels.
-  * PGUP/PGDOWN paging
+  * ~~PGUP/PGDOWN paging~~
   * Checkboxes
   * Command mode
 
