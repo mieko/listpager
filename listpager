@@ -1,0 +1,269 @@
+#!/usr/bin/env ruby
+
+require 'curses'
+require 'socket'
+require 'optparse'
+
+def key_name(v)
+  m = {
+    10  => 'enter',
+    260 => 'left',
+    261 => 'right',
+    127 => 'backspace',
+    330 => 'delete',
+    ' ' => 'space',
+  }
+  m[v] || v
+end
+
+class List
+  INDICATOR  = '➜'
+  DOWN_ARROW = '🔽'
+  UP_ARROW   = '🔼'
+
+  attr_reader   :window
+  attr_reader   :socket
+  attr_accessor :values
+  attr_reader   :selected
+  attr_reader   :offset
+
+  def initialize(window, socket:)
+    @window = window
+    @values = []
+    @selected = 0
+    @offset = 0
+    @socket = socket
+
+    initialize_colors
+  end
+
+  def initialize_colors
+    @color_default  = 0
+    @color_selected = 1
+    @color_none     = 0
+    Curses.init_pair(@color_default, Curses::COLOR_WHITE, Curses::COLOR_BLACK)
+    Curses.init_pair(@color_selected, Curses::COLOR_BLACK, Curses::COLOR_WHITE)
+  end
+
+  attr_reader :selected
+  def selected=(v)
+    current = @selected
+
+    v = 0 if v < 0
+    v = values.size - 1 if v >= values.size
+    @selected = v
+
+    if @selected >= offset + window.maxy
+      @offset = v - window.maxy + 1
+    elsif @selected < offset
+      @offset = @selected
+    end
+
+    if current != selected
+      selection_changed
+    end
+  end
+
+  def handle_input(value)
+    case value
+      when Curses::KEY_UP
+        self.selected -= 1
+      when Curses::KEY_DOWN
+        self.selected += 1
+      else
+        key_pressed(value)
+    end
+  end
+
+  def selection_changed
+    socket.puts "select #{selected} #{values[selected]}"
+  end
+
+  def key_pressed(k)
+    socket.puts "keypress #{key_name(k)} #{selected} #{values[selected]}"
+  end
+
+  def render()
+    (0...window.maxy).each do |i|
+      item_index = @offset + i
+      window.setpos(i, 0)
+      indicator = ' '
+      if item_index >= values.size
+        window.color_set(@color_default)
+        window.addstr(' ' * window.maxx)
+        next
+      end
+
+      if item_index == selected
+        window.color_set(@color_selected)
+        indicator = INDICATOR
+      else
+        window.color_set(@color_default)
+      end
+      blank = window.maxx - values[item_index].size - indicator.size
+      blank = 0 if blank.negative?
+      window.addstr(' ' + indicator + ' ' + values[item_index] + (' ' * blank))
+
+      if i == 0 && offset > 0
+        window.setpos(i, window.maxx - 2)
+        window.addstr(UP_ARROW)
+      elsif i == window.maxy - 1 && (values.size > offset + window.maxy)
+        window.setpos(i, window.maxx - 2)
+        window.addstr(DOWN_ARROW)
+      end
+    end
+    Curses.refresh
+  end
+end
+
+class ClientTerminal
+  attr_accessor :list
+  def initialize(socket)
+    Curses.init_screen
+    Curses.start_color
+    Curses.use_default_colors
+    Curses.cbreak
+    Curses.stdscr.scrollok(false)
+    Curses.stdscr.keypad = true
+    Curses.curs_set(0)
+    Curses.timeout = 25
+
+    @socket = socket
+    @list = List.new(Curses.stdscr, socket: @socket)
+    @list.values = []
+    @buffer = ''
+  end
+
+  def process_command(cmd)
+    list.values.push(cmd)
+  end
+
+  def process_buffer
+    res = IO.select([@socket], [], [], 0.025)
+    if res && (readers = res[0]) && (rd = readers[0])
+      begin
+        @buffer << rd.read_nonblock(512)
+      rescue IO::WaitReadable
+        # pass
+      end
+    end
+
+    used = 0
+    StringIO.new(@buffer).each_line do |line|
+      if line[-1] == "\n"
+        process_command(line.chomp)
+        used += line.size
+      else
+        break
+      end
+    end
+    @buffer = @buffer[used...-1]
+  end
+
+  def run
+    begin
+      loop do
+        process_buffer
+        list.render
+
+        if (ch = Curses.getch)
+          list.handle_input(ch)
+        end
+      end
+    ensure
+      Curses.close_screen
+    end
+  end
+end
+
+
+STDIN.sync = true
+STDOUT.sync = true
+
+com = UNIXSocket.pair
+com.map {|c| c.sync=true }
+
+child = fork do
+  # Ruby curses doens't have newterm, so we have to reopen
+  # stdin/stdout to a TTY and communicate with the parent
+  # over a pipe
+  STDIN.reopen('/dev/tty', 'r')
+  STDOUT.reopen('/dev/tty', 'w')
+
+  gui = ClientTerminal.new(com[1])
+  begin
+    gui.run
+  rescue Interrupt
+  end
+  exit 0
+end
+
+if STDOUT.tty?
+  STDOUT.reopen('/dev/null', 'w')
+end
+STDOUT.sync = true
+
+if STDIN.tty?
+  STDIN.reopen('/dev/null', 'r')
+end
+STDIN.sync = true
+
+gui_socket = com[0]
+lines = {
+  $stdin    => nil,
+  gui_socket => nil
+}
+
+bufs = {
+  $stdin => '',
+  gui_socket => ''
+}
+
+handles = [$stdin, gui_socket]
+
+@gui_socket = gui_socket
+def dispatch_input_command(command)
+  @gui_socket.puts command
+end
+
+def dispatch_line(fd, line)
+  if fd == $stdin
+    dispatch_input_command(line)
+  else
+    puts line
+  end
+end
+
+
+loop do
+  res = IO.select(handles, [], [], 1.0)
+
+  if res && (rd = res[0])
+    rd.each do |fd|
+      begin
+        bytes = fd.read_nonblock(512)
+        bufs[fd] << bytes
+      rescue EOFError
+        handles.delete(fd)
+      rescue IO::WaitReadable
+        # pass
+      end
+    end
+  end
+
+  bufs.each do |fd, str|
+    used = 0
+    sio = StringIO.new(str)
+    sio.each_line do |line|
+      if line[-1] == "\n"
+        used += line.size
+        dispatch_line(fd, line.chomp)
+      else
+        break
+      end
+    end
+    bufs[fd] = str[used...-1]
+    puts "WTF: #{bufs[fd]}" if bufs[fd].match(/\n/)
+  end
+  bufs.reject! {|fd, v| fd.eof? }
+end
