@@ -7,7 +7,7 @@ interactive, and writes events to `stdout` as the user interacts with it.
 
 *listpager is in the left-hand panel*
 
-listpager has emoji scroll indications, and can handle lists of any length.  It
+listpager has proportional scroll bars, and can handle lists of any length.  It
 handles terminal resizing just fine.
 
 listpager was written as a component of [Cult][1], a fleet management tool.  Cult's
@@ -45,7 +45,7 @@ be more functional, I'd like to add a few features:
 
   * `listpager -1`, for displaying a list and just outputting the one item the
     user selected with enter, ala Zenity/dialog.
-  * Real, proportional scroll bars
+  * ~~Real, proportional scroll bars~~
   * A search/filter activated with the `/` key
   * Maybe a title, but I'm not trying to turn it into `dialog`
   * Mouse support, with scroll wheels.

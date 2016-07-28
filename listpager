@@ -4,6 +4,14 @@ require 'curses'
 require 'socket'
 require 'optparse'
 
+$pair = 1
+
+def alloc_colorpair(fg, bg)
+  $pair += 1
+  Curses.init_pair($pair, fg, bg)
+  $pair
+end
+
 def key_name(v)
   m = {
     10  => 'enter',
@@ -16,10 +24,104 @@ def key_name(v)
   m[v] || v
 end
 
+class Scrollbar
+  DOWN_ARROW = '▼'
+  UP_ARROW   = '▲'
+  BACKGROUND = ' '
+  THUMB      = ' '
+
+  attr_reader :list
+
+  def width
+    1
+  end
+
+  def initialize(list)
+    @list = list
+    @color_background = 4
+    Curses.init_pair(@color_background, Curses::COLOR_BLACK, Curses::COLOR_BLACK)
+
+    @color_thumb = 5
+    Curses.init_pair(@color_thumb, Curses::COLOR_WHITE, Curses::COLOR_WHITE)
+
+    @color_enabled_arrow = 6
+    Curses.init_pair(@color_enabled_arrow, Curses::COLOR_WHITE, Curses::COLOR_BLACK)
+    @color_disabled_arrow = @color_enabled_arrow
+  end
+
+  def render
+    return if list.values.size <= window.maxy
+
+    window.color_set(can_scroll_up? ? @color_enabled_arrow : @color_disabled_arrow)
+    window.setpos(0, window.maxx - 1)
+    window.addstr(UP_ARROW)
+
+    window.color_set(can_scroll_down? ? @color_enabled_arrow : @color_disabled_arrow)
+    window.setpos(window.maxy - 1, window.maxx - 1)
+    window.addstr(DOWN_ARROW)
+
+    window.color_set(@color_background)
+    (1...window.maxy-1).each do |y|
+      window.setpos(y, window.maxx - 1)
+      window.addstr(BACKGROUND)
+    end
+
+
+    # Ref: http://csdgn.org/inform/scrollbar-mechanics
+    contentSize = list.values.size.to_f
+    windowSize = window.maxy.to_f
+    trackSize = windowSize - 2
+    windowContentRatio = windowSize / contentSize
+    gripSize = trackSize * windowContentRatio
+
+    minimalGripSize = 1.0
+    if(gripSize < minimalGripSize)
+      gripSize = minimalGripSize
+    end
+
+    windowScrollAreaSize = contentSize - windowSize
+    windowPosition = list.offset.to_f
+    windowPositionRatio = windowPosition / windowScrollAreaSize
+
+    trackScrollAreaSize = trackSize - gripSize
+    gripPositionOnTrack = trackScrollAreaSize * windowPositionRatio
+
+
+    st = 1 + gripPositionOnTrack.floor.to_i
+    e = (st + gripSize.ceil).to_i
+
+    st = 1 if st < 1
+    e = window.maxy - 1 if e > window.maxy - 1
+
+    @last ||= []
+    if @last != [st,e]
+      list.socket.puts [st, e].inspect
+      @last = [st, e]
+    end
+
+    window.color_set(@color_thumb)
+    (st...e).each do |y|
+      window.setpos(y, window.maxx - 1)
+      window.addstr(THUMB)
+    end
+  end
+
+  def window
+    list.window
+  end
+
+  def can_scroll_up?
+    list.offset > 0
+  end
+
+  def can_scroll_down?
+    list.values.size > list.offset + window.maxy
+  end
+end
+
 class List
-  INDICATOR  = '➜'
-  DOWN_ARROW = '🔽'
-  UP_ARROW   = '🔼'
+  INDICATOR    = ' ➤ '
+  NO_INDICATOR = '   '
 
   attr_reader   :window
   attr_reader   :socket
@@ -27,22 +129,50 @@ class List
   attr_reader   :selected
   attr_reader   :offset
 
+  attr_reader :color_default
+  attr_reader :color_selected
+  attr_reader :scrollbar
+
   def initialize(window, socket:)
     @window = window
     @values = []
     @selected = 0
     @offset = 0
     @socket = socket
+    @dirty = true
+    @locked = false
 
-    initialize_colors
-  end
-
-  def initialize_colors
     @color_default  = 0
     @color_selected = 1
-    @color_none     = 0
     Curses.init_pair(@color_default, Curses::COLOR_WHITE, Curses::COLOR_BLACK)
     Curses.init_pair(@color_selected, Curses::COLOR_BLACK, Curses::COLOR_WHITE)
+
+    @scrollbar = Scrollbar.new(self)
+  end
+
+  def lock
+    @locked = true
+    yield
+  ensure
+    @locked = false
+    render
+  end
+
+  def locked?
+    @locked
+  end
+
+  def dirty!
+    @dirty = true
+  end
+
+  def dirty?
+    !! @dirty
+  end
+
+  def offset=(v)
+    dirty! if v != @offset
+    @offset = v
   end
 
   attr_reader :selected
@@ -54,14 +184,16 @@ class List
     @selected = v
 
     if @selected >= offset + window.maxy
-      @offset = v - window.maxy + 1
+      self.offset = v - window.maxy + 1
     elsif @selected < offset
-      @offset = @selected
+      self.offset = @selected
     end
 
     if current != selected
+      dirty!
       selection_changed
     end
+    @selected
   end
 
   def handle_input(value)
@@ -83,7 +215,15 @@ class List
     socket.puts "keypress #{key_name(k)} #{selected} #{values[selected]}"
   end
 
+  def dirty!(v = true)
+    @dirty = v
+  end
+
   def render()
+    return if locked?
+    return unless dirty?
+    dirty!(false)
+
     (0...window.maxy).each do |i|
       item_index = @offset + i
       window.setpos(i, 0)
@@ -99,20 +239,21 @@ class List
         indicator = INDICATOR
       else
         window.color_set(@color_default)
+        indicator = NO_INDICATOR
       end
-      blank = window.maxx - values[item_index].size - indicator.size
-      blank = 0 if blank.negative?
-      window.addstr(' ' + indicator + ' ' + values[item_index] + (' ' * blank))
 
-      if i == 0 && offset > 0
-        window.setpos(i, window.maxx - 2)
-        window.addstr(UP_ARROW)
-      elsif i == window.maxy - 1 && (values.size > offset + window.maxy)
-        window.setpos(i, window.maxx - 2)
-        window.addstr(DOWN_ARROW)
+      string = indicator + (values[item_index] || '')
+      fixed_len = window.maxx - scrollbar.width
+      if string.size < fixed_len
+        string += (' ' * (fixed_len - string.size))
+      elsif string.size > fixed_len
+        string = string[0...fixed_len]
       end
+      window.addstr(string)
     end
-    Curses.refresh
+
+    scrollbar.render
+    window.refresh
   end
 end
 
@@ -126,6 +267,7 @@ class ClientTerminal
     Curses.stdscr.scrollok(false)
     Curses.stdscr.keypad = true
     Curses.curs_set(0)
+    Curses.noecho
     Curses.timeout = 25
 
     @socket = socket
@@ -136,28 +278,32 @@ class ClientTerminal
 
   def process_command(cmd)
     list.values.push(cmd)
+    list.dirty!
+    list.render
   end
 
   def process_buffer
-    res = IO.select([@socket], [], [], 0.025)
-    if res && (readers = res[0]) && (rd = readers[0])
-      begin
-        @buffer << rd.read_nonblock(512)
-      rescue IO::WaitReadable
-        # pass
+    @list.lock do
+      res = IO.select([@socket], [], [], 0.025)
+      if res && (readers = res[0]) && (rd = readers[0])
+        begin
+          @buffer << rd.read_nonblock(512)
+        rescue IO::WaitReadable
+          # pass
+        end
       end
-    end
 
-    used = 0
-    StringIO.new(@buffer).each_line do |line|
-      if line[-1] == "\n"
-        process_command(line.chomp)
-        used += line.size
-      else
-        break
+      used = 0
+      StringIO.new(@buffer).each_line do |line|
+        if line[-1] == "\n"
+          process_command(line.chomp)
+          used += line.size
+        else
+          break
+        end
       end
+      @buffer = @buffer[used...-1]
     end
-    @buffer = @buffer[used...-1]
   end
 
   def run
@@ -165,10 +311,10 @@ class ClientTerminal
       loop do
         process_buffer
         list.render
-
         if (ch = Curses.getch)
           list.handle_input(ch)
         end
+        Curses.refresh
       end
     ensure
       Curses.close_screen
@@ -229,7 +375,7 @@ end
 def dispatch_line(fd, line)
   if fd == $stdin
     dispatch_input_command(line)
-  else
+  else # coming from the subprocess
     puts line
   end
 end
@@ -240,13 +386,16 @@ loop do
 
   if res && (rd = res[0])
     rd.each do |fd|
-      begin
-        bytes = fd.read_nonblock(512)
-        bufs[fd] << bytes
-      rescue EOFError
-        handles.delete(fd)
-      rescue IO::WaitReadable
-        # pass
+      loop do
+        begin
+          bytes = fd.read_nonblock(512)
+          bufs[fd] << bytes
+        rescue EOFError
+          handles.delete(fd)
+          break
+        rescue IO::WaitReadable
+          break
+        end
       end
     end
   end
@@ -263,7 +412,6 @@ loop do
       end
     end
     bufs[fd] = str[used...-1]
-    puts "WTF: #{bufs[fd]}" if bufs[fd].match(/\n/)
   end
   bufs.reject! {|fd, v| fd.eof? }
 end
