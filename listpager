@@ -5,8 +5,8 @@ require 'socket'
 require 'optparse'
 
 class Scrollbar
-  DOWN_ARROW = '▼'
-  UP_ARROW   = '▲'
+  UP_ARROW   = '▴'
+  DOWN_ARROW = '▾'
 
   attr_reader :list
 
@@ -64,24 +64,26 @@ class Scrollbar
   end
 
   def render
+    x = window.maxx - self.width
+
     return if list.values.size <= window.maxy
 
     window.color_set(@color_arrow)
-    window.setpos(0, window.maxx - 1)
+    window.setpos(0, x)
     window.addstr(UP_ARROW)
 
-    window.setpos(window.maxy - 1, window.maxx - 1)
+    window.setpos(window.maxy - 1, x)
     window.addstr(DOWN_ARROW)
 
     window.color_set(@color_background)
-    (1...window.maxy-1).each do |y|
-      window.setpos(y, window.maxx - 1)
+    (1...window.maxy - 1).each do |y|
+      window.setpos(y, x)
       window.addstr(' ')
     end
 
     window.color_set(@color_thumb)
     scroll_thumb_range.each do |y|
-      window.setpos(y, window.maxx - 1)
+      window.setpos(y, x)
       window.addstr(' ')
     end
   end
@@ -190,6 +192,10 @@ class List
 
   def handle_input(value)
     case value
+      when Curses::KEY_RESIZE
+        window.clear
+        dirty!
+        render
       when Curses::KEY_UP
         self.selected -= 1
       when Curses::KEY_DOWN
@@ -215,6 +221,19 @@ class List
     @dirty = v
   end
 
+  def normalize(s)
+    return s.gsub(/[^[:print:]]/, '').chomp
+      .each_char.map.with_index do |c, i|
+        if c == "\t"
+          next_stop = i + (8 - i % 8)
+          ' ' * (next_stop - i)
+        else
+          c
+        end
+      end.join
+  end
+
+
   def render()
     return if locked?
     return unless dirty?
@@ -223,12 +242,9 @@ class List
     (0...window.maxy).each do |i|
       item_index = @offset + i
       window.setpos(i, 0)
-      indicator = ' '
-      if item_index >= values.size
-        window.color_set(@color_default)
-        window.addstr(' ' * window.maxx)
-        next
-      end
+      indicator = nil
+
+      fixed_len = window.maxx - scrollbar.width - 1
 
       if item_index == selected
         window.color_set(@color_selected)
@@ -238,18 +254,20 @@ class List
         indicator = NO_INDICATOR
       end
 
-      string = indicator + (values[item_index] || '')
-      fixed_len = window.maxx - scrollbar.width
+      string = values[item_index] || ''
+      string = normalize(string)
+      string = indicator + string
+
       if string.size < fixed_len
         string += (' ' * (fixed_len - string.size))
       elsif string.size > fixed_len
         string = string[0...fixed_len]
       end
+
       window.addstr(string)
     end
 
     scrollbar.render
-    window.refresh
   end
 end
 
@@ -264,7 +282,7 @@ class ClientTerminal
     Curses.stdscr.keypad = true
     Curses.curs_set(0)
     Curses.noecho
-    Curses.timeout = 25
+    Curses.timeout = 0
 
     @socket = socket
     @list = List.new(Curses.stdscr, socket: @socket)
@@ -275,12 +293,13 @@ class ClientTerminal
   def process_command(cmd)
     list.values.push(cmd)
     list.dirty!
-    list.render
   end
 
   def process_buffer
     @list.lock do
-      res = IO.select([@socket], [], [], 0.025)
+      # This select needs to be a small interval to make ncurses
+      # blocking getch responsive.
+      res = IO.select([@socket], [], [], 0.0001)
       if res && (readers = res[0]) && (rd = readers[0])
         loop do
           begin
@@ -341,6 +360,7 @@ child = fork do
   exit 0
 end
 
+
 if STDOUT.tty?
   STDOUT.reopen('/dev/null', 'w')
 end
@@ -379,7 +399,7 @@ end
 
 
 loop do
-  res = IO.select(handles, [], [], 1.0)
+  res = IO.select(handles, [], [], 0.25)
 
   if res && (rd = res[0])
     rd.each do |fd|
