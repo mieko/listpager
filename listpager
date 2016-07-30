@@ -4,6 +4,36 @@ require 'ncurses'
 require 'shellwords'
 require 'optparse'
 
+class Color
+  VALUES = {
+    list_default: 0,
+    list_selected: 1,
+    scroll_track: 2,
+    scroll_thumb: 3,
+    scroll_arrow: 4,
+  }.freeze
+
+  def self.curses_lookup(c)
+    Ncurses.const_get(c)
+  end
+
+  def self.init_color(c, fg, bg)
+    fail "Invalid color: #{c.inspect}" if VALUES[c].nil?
+    Ncurses.init_pair(VALUES[c], curses_lookup(fg), curses_lookup(bg))
+  end
+
+  def self.init
+    init_color(:list_selected, :COLOR_BLACK, :COLOR_WHITE)
+    init_color(:scroll_track,  :COLOR_BLACK, :COLOR_BLACK)
+    init_color(:scroll_thumb,  :COLOR_WHITE, :COLOR_WHITE)
+    init_color(:scroll_arrow,  :COLOR_WHITE, :COLOR_BLACK)
+  end
+
+  def self.[](name)
+    VALUES[name] or fail "invalid color name: #{name.inspect}"
+  end
+end
+
 class Scrollbar
   UP_ARROW   = '▴'
   DOWN_ARROW = '▾'
@@ -16,18 +46,6 @@ class Scrollbar
 
   def initialize(list)
     @list = list
-
-    @color_background = 4
-    Ncurses.init_pair(@color_background, Ncurses::COLOR_BLACK,
-                                         Ncurses::COLOR_BLACK)
-
-    @color_thumb = 5
-    Ncurses.init_pair(@color_thumb, Ncurses::COLOR_WHITE,
-                                    Ncurses::COLOR_WHITE)
-
-    @color_arrow = 6
-    Ncurses.init_pair(@color_arrow, Ncurses::COLOR_WHITE,
-                                    Ncurses::COLOR_BLACK)
   end
 
   def scroll_thumb_range
@@ -77,20 +95,20 @@ class Scrollbar
 
     return if list.values.size <= maxy
 
-    window.color_set(@color_arrow, nil)
+    window.color_set(Color[:scroll_arrow], nil)
     window.move(0, x)
     window.addstr(UP_ARROW)
 
     window.move(maxy - 1, x)
     window.addstr(DOWN_ARROW)
 
-    window.color_set(@color_background, nil)
+    window.color_set(Color[:scroll_track], nil)
     (1...maxy - 1).each do |y|
       window.move(y, x)
       window.addstr(' ')
     end
 
-    window.color_set(@color_thumb, nil)
+    window.color_set(Color[:scroll_thumb], nil)
     scroll_thumb_range.each do |y|
       window.move(y, x)
       window.addstr(' ')
@@ -112,13 +130,10 @@ class List
   INDICATOR    = ' ➤ '
   NO_INDICATOR = '   '
 
-  attr_reader   :window
+  attr_reader :window
   attr_accessor :values
-  attr_reader   :selected
-  attr_reader   :offset
-
-  attr_reader :color_default
-  attr_reader :color_selected
+  attr_reader :selected
+  attr_reader :offset
   attr_reader :scrollbar
 
   def initialize(window)
@@ -128,12 +143,6 @@ class List
     @offset = 0
     @dirty = true
     @locked = false
-
-    @color_default  = 0
-    @color_selected = 1
-    Ncurses.init_pair(@color_default, Ncurses::COLOR_WHITE, Ncurses::COLOR_BLACK)
-    Ncurses.init_pair(@color_selected, Ncurses::COLOR_BLACK, Ncurses::COLOR_WHITE)
-
     @scrollbar = Scrollbar.new(self)
   end
 
@@ -188,6 +197,7 @@ class List
 
   def key_name(v)
     @m ||= {
+      27  => 'esc',
       10  => 'enter',
       260 => 'left',
       261 => 'right',
@@ -195,7 +205,7 @@ class List
       330 => 'delete',
       ' ' => 'space',
     }
-    @m[v] || v
+    @m[v] || (v < 255 && v.chr.match(/[[:print:]]/) ? v.chr : "=#{v}")
   end
 
   def handle_input(value)
@@ -266,10 +276,10 @@ class List
       fixed_len = maxx - scrollbar.width - 1
 
       if item_index == selected
-        window.color_set(color_selected, nil)
+        window.color_set(Color[:list_selected], nil)
         indicator = INDICATOR
       else
-        window.color_set(color_default, nil)
+        window.color_set(Color[:list_default], nil)
         indicator = NO_INDICATOR
       end
 
@@ -302,6 +312,7 @@ class ClientTerminal
     screen = Ncurses.newterm(nil, @tty, @tty)
     Ncurses.set_term(screen)
     Ncurses.start_color
+    Color.init
     Ncurses.use_default_colors
     Ncurses.cbreak
     Ncurses.stdscr.scrollok(false)
@@ -405,12 +416,12 @@ class ClientTerminal
         # This greatly reduces performance, but works around
         # ncurses using an optimization that is incorrect, which
         # leads to the scrollbar background bleeding into the list.
-        Ncurses.redrawwin(list.window)
         process_buffer
         while (ch = Ncurses.getch) != -1
           list.handle_input(ch)
         end
         list.render
+        Ncurses.redrawwin(list.window)
         Ncurses.refresh
       end
     ensure
