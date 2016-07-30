@@ -50,7 +50,7 @@ socat TCP:localhost:4500 -
 
 Add some items on your keyboard, then enter `%%` to enter command mode.  Another
 `%%` will put you back in command mode.  If you need a literal `%%` list item,
-escape it with '\%%'.  If you need a literal '\\%%', you're out of luck, because
+escape it with `\%%`.  If you need a literal `\\%%`, you're out of luck, because
 complete escaping isn't available yet.
 
 There are a lot of obvious things the protocol could do, that it doesn't
