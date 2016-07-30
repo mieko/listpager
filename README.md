@@ -33,6 +33,30 @@ listpager.puts "%%"
 listpager.puts "select 35"
 ```
 
+If you want to play with the protocol, it's easiest to use two terminals and
+`socat` (some implementations of `nc`/`netcat` do weird FD juggling which
+ends up sending raw keyboard character input back to the client.).
+
+Set up one like:
+
+```bash
+socat TCP-LISTEN:4500,reuseaddr EXEC:'listpager'
+```
+
+And a "client", like:
+```bash
+socat TCP:localhost:4500 -
+```
+
+Add some items on your keyboard, then enter `%%` to enter command mode.  Another
+`%%` will put you back in command mode.  If you need a literal `%%` list item,
+escape it with '\%%'.  If you need a literal '\\%%', you're out of luck, because
+complete escaping isn't available yet.
+
+There are a lot of obvious things the protocol could do, that it doesn't
+currently.  It's way low-hanging fruit for any contributors (`clear`, `rename`,
+`move`, etc.)
+
 ## Protocol
 listpager reads each item from stdin, and it becomes a list item.  As the user
 arrows through the list, it outputs messages like:

@@ -342,7 +342,7 @@ class ClientTerminal
       cmd, *args = Shellwords.split(line)
       begin
         case cmd
-          when 'append-mode'
+          when '%%', 'append-mode'
             @mode = :append
           when 'get-selected'
             list.selection_changed
@@ -354,8 +354,7 @@ class ClientTerminal
             raise Interrupt
         end
       rescue IndexError => e
-        $stderr.puts "#{0}: bad command: #{line}"
-        $stderr.puts "#  #{e.message}"
+        puts "error bad-command #{line}"
       end
     end
 
