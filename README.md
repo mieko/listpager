@@ -18,6 +18,21 @@ talk to each other.  listpager is the node selection widget.
 So basically, you may want to `popen` listpager, print a list of somethings to
 its `stdin`, and listen on its `stdout`.
 
+```ruby
+listpager = IO.popen('listpager', 'r+')
+
+# You don't want buffered IO
+listpager.sync = true
+
+50.times do |i|
+  listpager.puts "Item #{i}"
+end
+
+# Enter command mode.
+listpager.puts "%%"
+listpager.puts "select 35"
+```
+
 ## Protocol
 listpager reads each item from stdin, and it becomes a list item.  As the user
 arrows through the list, it outputs messages like:
@@ -48,13 +63,10 @@ be more functional, I'd like to add a few features:
 
   * `listpager -1`, for displaying a list and just outputting the one item the
     user selected with enter, ala Zenity/dialog.
-  * ~~Real, proportional scroll bars~~
   * A search/filter activated with the `/` key
-  * Maybe a title, but I'm not trying to turn it into `dialog`
   * Mouse support, with scroll wheels.
-  * ~~PGUP/PGDOWN paging~~
   * Checkboxes
-  * Command mode
+  * Extend command mode
 
 
 ## Contributing

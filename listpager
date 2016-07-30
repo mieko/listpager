@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 
 require 'ncurses'
+require 'shellwords'
 require 'optparse'
 
 class Scrollbar
@@ -291,8 +292,11 @@ end
 
 class ClientTerminal
   attr_reader :list
+  attr_reader :mode
 
   def initialize
+    @mode = :append
+
     @tty = File.open('/dev/tty', 'r+')
     @tty.sync = true
     screen = Ncurses.newterm(nil, @tty, @tty)
@@ -318,9 +322,43 @@ class ClientTerminal
     @tty.close
   end
 
-  def process_command(cmd)
-    list.values.push(cmd)
-    list.dirty!
+  def append_mode?
+    @mode == :append
+  end
+
+  def process_command(line)
+    if append_mode?
+      case line
+      when '\%%'
+        list.values.push('%%')
+        list.dirty!
+      when '%%'
+        @mode = :command
+      else
+        list.values.push(line)
+        list.dirty!
+      end
+    else
+      cmd, *args = Shellwords.split(line)
+      begin
+        case cmd
+          when 'append-mode'
+            @mode = :append
+          when 'get-selected'
+            list.selection_changed
+          when 'select'
+            list.selected = args.fetch(0).to_i
+          when 'get-item'
+            puts ["item", args.fetch(0), list.values[args.fetch(0).to_i]].join ' '
+          when 'quit'
+            raise Interrupt
+        end
+      rescue IndexError => e
+        $stderr.puts "#{0}: bad command: #{line}"
+        $stderr.puts "#  #{e.message}"
+      end
+    end
+
   end
 
   def process_buffer
@@ -386,6 +424,8 @@ end
 
 begin
   ClientTerminal.new.run
+rescue Interrupt
+  # nothing.
 rescue SystemCallError => e
   $stderr.puts "#{$0}: #{e.message}"
   exit 1
