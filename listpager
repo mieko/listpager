@@ -56,7 +56,6 @@ class Scrollbar
 
     @last ||= []
     if @last != [st,e]
-      list.socket.puts [st, e].inspect
       @last = [st, e]
     end
 
@@ -353,6 +352,7 @@ child = fork do
   STDOUT.reopen('/dev/tty', 'w')
 
   gui = ClientTerminal.new(com[1])
+
   begin
     gui.run
   rescue Interrupt
@@ -397,7 +397,6 @@ def dispatch_line(fd, line)
   end
 end
 
-
 loop do
   res = IO.select(handles, [], [], 0.25)
 
@@ -428,7 +427,8 @@ loop do
         break
       end
     end
-    bufs[fd] = str[used...-1]
+    bufs[fd].clear
+    bufs[fd].insert(0, str[used...-1] || '')
   end
   bufs.reject! {|fd, v| fd.eof? }
 end
