@@ -402,6 +402,10 @@ class ClientTerminal
   def run
     begin
       loop do
+        # This greatly reduces performance, but works around
+        # ncurses using an optimization that is incorrect, which
+        # leads to the scrollbar background bleeding into the list.
+        Ncurses.redrawwin(list.window)
         process_buffer
         while (ch = Ncurses.getch) != -1
           list.handle_input(ch)
