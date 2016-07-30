@@ -1,42 +1,47 @@
 #!/usr/bin/env ruby
 
-require 'curses'
-require 'socket'
+require 'ncurses'
 require 'optparse'
 
 class Scrollbar
   UP_ARROW   = '▴'
   DOWN_ARROW = '▾'
 
-  attr_reader :list
-
   def width
     1
   end
 
+  attr_reader :list
+
   def initialize(list)
     @list = list
+
     @color_background = 4
-    Curses.init_pair(@color_background, Curses::COLOR_BLACK, Curses::COLOR_BLACK)
+    Ncurses.init_pair(@color_background, Ncurses::COLOR_BLACK,
+                                         Ncurses::COLOR_BLACK)
 
     @color_thumb = 5
-    Curses.init_pair(@color_thumb, Curses::COLOR_WHITE, Curses::COLOR_WHITE)
+    Ncurses.init_pair(@color_thumb, Ncurses::COLOR_WHITE,
+                                    Ncurses::COLOR_WHITE)
 
     @color_arrow = 6
-    Curses.init_pair(@color_arrow, Curses::COLOR_WHITE, Curses::COLOR_BLACK)
+    Ncurses.init_pair(@color_arrow, Ncurses::COLOR_WHITE,
+                                    Ncurses::COLOR_BLACK)
   end
 
   def scroll_thumb_range
+    maxx, maxy = getmaxxy
+
     # Ref: http://csdgn.org/inform/scrollbar-mechanics
     #  using original variableNames for clarity.
     contentSize = list.values.size.to_f
-    windowSize = window.maxy.to_f
+    windowSize = maxy.to_f
     trackSize = windowSize - 2
     windowContentRatio = windowSize / contentSize
     gripSize = trackSize * windowContentRatio
 
     minimalGripSize = 1.0
-    if(gripSize < minimalGripSize)
+    if gripSize < minimalGripSize
       gripSize = minimalGripSize
     end
 
@@ -47,48 +52,48 @@ class Scrollbar
     trackScrollAreaSize = trackSize - gripSize
     gripPositionOnTrack = trackScrollAreaSize * windowPositionRatio
 
-
     st = 1 + gripPositionOnTrack.floor.to_i
     e = (st + gripSize.ceil).to_i
 
     st = 1 if st < 1
-    e = window.maxy - 1 if e > window.maxy - 1
-
-    @last ||= []
-    if @last != [st,e]
-      @last = [st, e]
-    end
+    e = maxy - 1 if e > maxy - 1
 
     return st...e
   end
 
-  def render
-    x = window.maxx - self.width
-
-    return if list.values.size <= window.maxy
-
-    window.color_set(@color_arrow)
-    window.setpos(0, x)
-    window.addstr(UP_ARROW)
-
-    window.setpos(window.maxy - 1, x)
-    window.addstr(DOWN_ARROW)
-
-    window.color_set(@color_background)
-    (1...window.maxy - 1).each do |y|
-      window.setpos(y, x)
-      window.addstr(' ')
-    end
-
-    window.color_set(@color_thumb)
-    scroll_thumb_range.each do |y|
-      window.setpos(y, x)
-      window.addstr(' ')
-    end
-  end
-
   def window
     list.window
+  end
+
+  def getmaxxy
+    list.getmaxxy
+  end
+
+  def render
+    maxx, maxy = getmaxxy
+
+    x = maxx - self.width
+
+    return if list.values.size <= maxy
+
+    window.color_set(@color_arrow, nil)
+    window.move(0, x)
+    window.addstr(UP_ARROW)
+
+    window.move(maxy - 1, x)
+    window.addstr(DOWN_ARROW)
+
+    window.color_set(@color_background, nil)
+    (1...maxy - 1).each do |y|
+      window.move(y, x)
+      window.addstr(' ')
+    end
+
+    window.color_set(@color_thumb, nil)
+    scroll_thumb_range.each do |y|
+      window.move(y, x)
+      window.addstr(' ')
+    end
   end
 
   def can_scroll_up?
@@ -96,16 +101,17 @@ class Scrollbar
   end
 
   def can_scroll_down?
-    list.values.size > list.offset + window.maxy
+    maxx, maxy = getmaxxy
+    list.values.size > list.offset + maxy
   end
 end
+
 
 class List
   INDICATOR    = ' ➤ '
   NO_INDICATOR = '   '
 
   attr_reader   :window
-  attr_reader   :socket
   attr_accessor :values
   attr_reader   :selected
   attr_reader   :offset
@@ -114,24 +120,24 @@ class List
   attr_reader :color_selected
   attr_reader :scrollbar
 
-  def initialize(window, socket:)
+  def initialize(window)
     @window = window
     @values = []
     @selected = 0
     @offset = 0
-    @socket = socket
     @dirty = true
     @locked = false
 
     @color_default  = 0
     @color_selected = 1
-    Curses.init_pair(@color_default, Curses::COLOR_WHITE, Curses::COLOR_BLACK)
-    Curses.init_pair(@color_selected, Curses::COLOR_BLACK, Curses::COLOR_WHITE)
+    Ncurses.init_pair(@color_default, Ncurses::COLOR_WHITE, Ncurses::COLOR_BLACK)
+    Ncurses.init_pair(@color_selected, Ncurses::COLOR_BLACK, Ncurses::COLOR_WHITE)
 
     @scrollbar = Scrollbar.new(self)
   end
 
-  def lock
+  def locked
+    fail ArgumentError, "block required" unless block_given?
     @locked = true
     yield
   ensure
@@ -143,8 +149,8 @@ class List
     @locked
   end
 
-  def dirty!
-    @dirty = true
+  def dirty!(value = true)
+    @dirty = value
   end
 
   def dirty?
@@ -158,22 +164,24 @@ class List
 
   attr_reader :selected
   def selected=(v)
+    maxx, maxy = getmaxxy
     current = @selected
 
     v = 0 if v < 0
     v = values.size - 1 if v >= values.size
     @selected = v
 
-    if @selected >= offset + window.maxy
-      self.offset = v - window.maxy + 1
+    if @selected >= offset + maxy
+      self.offset = v - maxy + 1
     elsif @selected < offset
       self.offset = @selected
     end
 
-    if current != selected
+    if current != @selected
       dirty!
       selection_changed
     end
+
     @selected
   end
 
@@ -190,30 +198,33 @@ class List
   end
 
   def handle_input(value)
+    maxx, maxy = getmaxxy
+
     case value
-      when Curses::KEY_RESIZE
+      when -1
+        return
+      when Ncurses::KEY_RESIZE
         window.clear
         dirty!
-        render
-      when Curses::KEY_UP
+      when Ncurses::KEY_UP
         self.selected -= 1
-      when Curses::KEY_DOWN
+      when Ncurses::KEY_DOWN
         self.selected += 1
-      when Curses::KEY_PPAGE
-        self.selected -= window.maxy - 1
-      when Curses::KEY_NPAGE
-        self.selected += window.maxy - 1
+      when Ncurses::KEY_PPAGE
+        self.selected -= maxy - 1
+      when Ncurses::KEY_NPAGE
+        self.selected += maxy - 1
       else
         key_pressed(value)
     end
   end
 
   def selection_changed
-    socket.puts "select #{selected} #{values[selected]}"
+    puts "select #{selected} #{values[selected]}"
   end
 
   def key_pressed(k)
-    socket.puts "keypress #{key_name(k)} #{selected} #{values[selected]}"
+    puts "keypress #{key_name(k)} #{selected} #{values[selected]}"
   end
 
   def dirty!(v = true)
@@ -221,35 +232,43 @@ class List
   end
 
   def normalize(s)
-    return s.gsub(/[^[:print:]]/, '').chomp
-      .each_char.map.with_index do |c, i|
-        if c == "\t"
-          next_stop = i + (8 - i % 8)
-          ' ' * (next_stop - i)
-        else
-          c
-        end
-      end.join
+    return s.gsub(/[^[:print:]]/, '')
+            .chomp
+            .each_char.map.with_index do |c, i|
+              if c == "\t"
+                next_stop = i + (8 - i % 8)
+                ' ' * (next_stop - i)
+              else
+                c
+              end
+            end.join
   end
 
+  def getmaxxy
+    maxx, maxy = [], []
+    window.getmaxyx(maxy, maxx)
+    [maxx.first, maxy.first]
+  end
 
   def render()
     return if locked?
     return unless dirty?
     dirty!(false)
 
-    (0...window.maxy).each do |i|
-      item_index = @offset + i
-      window.setpos(i, 0)
+    maxx, maxy = getmaxxy
+
+    (0...maxy).each do |i|
+      item_index = offset + i
+      window.move(i, 0)
       indicator = nil
 
-      fixed_len = window.maxx - scrollbar.width - 1
+      fixed_len = maxx - scrollbar.width - 1
 
       if item_index == selected
-        window.color_set(@color_selected)
+        window.color_set(color_selected, nil)
         indicator = INDICATOR
       else
-        window.color_set(@color_default)
+        window.color_set(color_default, nil)
         indicator = NO_INDICATOR
       end
 
@@ -262,7 +281,6 @@ class List
       elsif string.size > fixed_len
         string = string[0...fixed_len]
       end
-
       window.addstr(string)
     end
 
@@ -270,23 +288,34 @@ class List
   end
 end
 
-class ClientTerminal
-  attr_accessor :list
-  def initialize(socket)
-    Curses.init_screen
-    Curses.start_color
-    Curses.use_default_colors
-    Curses.cbreak
-    Curses.stdscr.scrollok(false)
-    Curses.stdscr.keypad = true
-    Curses.curs_set(0)
-    Curses.noecho
-    Curses.timeout = 0
 
-    @socket = socket
-    @list = List.new(Curses.stdscr, socket: @socket)
-    @list.values = []
+class ClientTerminal
+  attr_reader :list
+
+  def initialize
+    @tty = File.open('/dev/tty', 'r+')
+    @tty.sync = true
+    screen = Ncurses.newterm(nil, @tty, @tty)
+    Ncurses.set_term(screen)
+    Ncurses.start_color
+    Ncurses.use_default_colors
+    Ncurses.cbreak
+    Ncurses.stdscr.scrollok(false)
+    Ncurses.stdscr.keypad(true)
+    Ncurses.curs_set(0)
+    Ncurses.noecho
+    Ncurses.timeout(0)
+
+    @list = List.new(Ncurses.stdscr)
     @buffer = ''
+  end
+
+  def deinitialize
+    Ncurses.echo
+    Ncurses.nocbreak
+    Ncurses.nl
+    Ncurses.endwin
+    @tty.close
   end
 
   def process_command(cmd)
@@ -295,30 +324,41 @@ class ClientTerminal
   end
 
   def process_buffer
-    @list.lock do
-      # This select needs to be a small interval to make ncurses
-      # blocking getch responsive.
-      res = IO.select([@socket], [], [], 0.0001)
-      if res && (readers = res[0]) && (rd = readers[0])
-        loop do
-          begin
-            @buffer << rd.read_nonblock(512)
-          rescue IO::WaitReadable
-            break
+    @handles ||= [$stdin]
+
+    return if @handles.empty? && @buffer.empty?
+
+    @list.locked do
+      unless @handles.empty?
+        # This select needs to be a small interval to make ncurses
+        # blocking getch responsive.
+        res = IO.select(@handles, [], [], 0.0001)
+        if res && res[0]
+          loop do
+            begin
+              @buffer << $stdin.read_nonblock(512)
+            rescue EOFError
+              @handles = []
+              break
+            rescue IO::WaitReadable
+              break
+            end
           end
         end
       end
 
-      used = 0
-      StringIO.new(@buffer).each_line do |line|
-        if line[-1] == "\n"
-          process_command(line.chomp)
-          used += line.size
-        else
-          break
+      unless @buffer.empty?
+        used = 0
+        StringIO.new(@buffer).each_line do |line|
+          if line[-1] == "\n"
+            process_command(line.chomp)
+            used += line.size
+          else
+            break
+          end
         end
+        @buffer = @buffer[used...-1]
       end
-      @buffer = @buffer[used...-1]
     end
   end
 
@@ -326,109 +366,27 @@ class ClientTerminal
     begin
       loop do
         process_buffer
-        list.render
-        if (ch = Curses.getch)
+        while (ch = Ncurses.getch) != -1
           list.handle_input(ch)
         end
-        Curses.refresh
+        list.render
+        Ncurses.refresh
       end
     ensure
-      Curses.close_screen
+      deinitialize
     end
   end
 end
 
-
-STDIN.sync = true
-STDOUT.sync = true
-
-com = UNIXSocket.pair
-com.map {|c| c.sync=true }
-
-child = fork do
-  # All of this fd fiddling stuff is because Ruby curses doesn't expose
-  # newterm()
-  STDIN.reopen('/dev/tty', 'r')
-  STDOUT.reopen('/dev/tty', 'w')
-
-  gui = ClientTerminal.new(com[1])
-
-  begin
-    gui.run
-  rescue Interrupt
-  end
-  exit 0
+[$stdin, $stdout].each do |io|
+  io.sync = true
+  io.reopen('/dev/null') if io.tty?
 end
 
 
-if STDOUT.tty?
-  STDOUT.reopen('/dev/null', 'w')
-end
-STDOUT.sync = true
-
-if STDIN.tty?
-  STDIN.reopen('/dev/null', 'r')
-end
-STDIN.sync = true
-
-gui_socket = com[0]
-lines = {
-  $stdin    => nil,
-  gui_socket => nil
-}
-
-bufs = {
-  $stdin => '',
-  gui_socket => ''
-}
-
-handles = [$stdin, gui_socket]
-
-@gui_socket = gui_socket
-def dispatch_input_command(command)
-  @gui_socket.puts command
-end
-
-def dispatch_line(fd, line)
-  if fd == $stdin
-    dispatch_input_command(line)
-  else # coming from the subprocess
-    puts line
-  end
-end
-
-loop do
-  res = IO.select(handles, [], [], 0.25)
-
-  if res && (rd = res[0])
-    rd.each do |fd|
-      loop do
-        begin
-          bytes = fd.read_nonblock(512)
-          bufs[fd] << bytes
-        rescue EOFError
-          handles.delete(fd)
-          break
-        rescue IO::WaitReadable
-          break
-        end
-      end
-    end
-  end
-
-  bufs.each do |fd, str|
-    used = 0
-    sio = StringIO.new(str)
-    sio.each_line do |line|
-      if line[-1] == "\n"
-        used += line.size
-        dispatch_line(fd, line.chomp)
-      else
-        break
-      end
-    end
-    bufs[fd].clear
-    bufs[fd].insert(0, str[used...-1] || '')
-  end
-  bufs.reject! {|fd, v| fd.eof? }
+begin
+  ClientTerminal.new.run
+rescue SystemCallError => e
+  $stderr.puts "#{$0}: #{e.message}"
+  exit 1
 end

@@ -1,5 +1,6 @@
 # listpager
 
+## Introduction
 listpager is a terminal listbox.  It reads `stdin` for a list of items, goes all
 interactive, and writes events to `stdout` as the user interacts with it.
 
@@ -30,16 +31,18 @@ enters command mode.  Currently, command mode does nothing, but in the future,
 it will allow the calling program to instruct listpager to select certain items,
 ask for statuses, manipulate the list, add badges, change captions, etc.
 
-## Dependencies and Installation
 
-listpager requires Ruby, and the `curses` gem.  It'll be properly packaged when
-it has a bit more functionality.
+## Dependencies and Installation
+listpager requires Ruby, and the `ncurses-ruby` gem.  It'll be properly packaged
+when it has a bit more functionality.
+
 
 ## Implementation Notes
-ncurses is terrible but portable.
+curses is terrible but portable.  'curses' doesn't expose enough to be useful,
+'ncurses-ruby' is about as good as you'll do in Ruby.
+
 
 ## Upcoming Features
-
 Right now, listpager does exactly what Cult needs, and nothing more.  For it to
 be more functional, I'd like to add a few features:
 
@@ -53,17 +56,17 @@ be more functional, I'd like to add a few features:
   * Checkboxes
   * Command mode
 
-## Contributing
 
-I'm trying to keep listpager a single-file, small project.  If you use listpager
-and know Ruby, please dig in and PR.
+## Contributing
+I'm trying to keep listpager a single-file, small project, preferably under 500
+lines of code. If you use listpager and know Ruby, please dig in and PR.
+
 
 ## License
-
 listpager is released unter the MIT license.
 
-## Authors
 
+## Authors
 listpager was written by Mike A. Owens at meter.md.  mike@meter.md
 
 [1]: https://github.com/metermd/cult "Cult"
