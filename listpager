@@ -4,6 +4,11 @@ require 'ncurses'
 require 'shellwords'
 require 'optparse'
 
+# This file is larger than I like because I want to keep it self-contained.
+# That is: assuming all the dependencies are met, it can just be copied to
+# /usr/local/bin or dropped in your program's source directory and work without
+# a gem/bundle/etc step.  Otherwise, we attempt to follow good practices.
+
 class Color
   VALUES = {
     list_default: 0,
@@ -24,9 +29,9 @@ class Color
 
   def self.init
     init_color(:list_selected, :COLOR_BLACK, :COLOR_WHITE)
-    init_color(:scroll_track,  :COLOR_BLACK, :COLOR_BLACK)
-    init_color(:scroll_thumb,  :COLOR_WHITE, :COLOR_WHITE)
-    init_color(:scroll_arrow,  :COLOR_WHITE, :COLOR_BLACK)
+    init_color(:scroll_track, :COLOR_BLACK, :COLOR_BLACK)
+    init_color(:scroll_thumb, :COLOR_WHITE, :COLOR_WHITE)
+    init_color(:scroll_arrow, :COLOR_WHITE, :COLOR_BLACK)
   end
 
   def self.[](name)
@@ -205,7 +210,7 @@ class List
       330 => 'delete',
       ' ' => 'space',
     }
-    @m[v] || (v < 255 && v.chr.match(/[[:print:]]/) ? v.chr : "=#{v}")
+    @m[v] || (v < 255 && v.chr.match(/[[:print:]]/) ? v.chr : "\##{v}")
   end
 
   def handle_input(value)
@@ -435,11 +440,11 @@ end
   io.reopen('/dev/null') if io.tty?
 end
 
-
 begin
   ClientTerminal.new.run
 rescue Interrupt
-  # nothing.
+  $stdout.puts "interrupt"
+  $stdout.flush
 rescue SystemCallError => e
   $stderr.puts "#{$0}: #{e.message}"
   exit 1
