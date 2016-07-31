@@ -3,6 +3,7 @@
 require 'ncurses'
 require 'shellwords'
 require 'optparse'
+require 'fcntl'
 
 # This file is larger than I like because I want to keep it self-contained.
 # That is: assuming all the dependencies are met, it can just be copied to
@@ -157,7 +158,6 @@ class List
     yield
   ensure
     @locked = false
-    render
   end
 
   def locked?
@@ -267,8 +267,12 @@ class List
   end
 
   def render()
-    return if locked?
-    return unless dirty?
+    return false unless dirty?
+    if locked?
+      dirty!(true)
+      return false
+    end
+
     dirty!(false)
 
     maxx, maxy = getmaxxy
@@ -301,6 +305,7 @@ class List
     end
 
     scrollbar.render
+    return true
   end
 end
 
@@ -313,6 +318,7 @@ class ClientTerminal
     @mode = :append
 
     @tty = File.open('/dev/tty', 'r+')
+
     @tty.sync = true
     screen = Ncurses.newterm(nil, @tty, @tty)
     Ncurses.set_term(screen)
@@ -324,7 +330,7 @@ class ClientTerminal
     Ncurses.stdscr.keypad(true)
     Ncurses.curs_set(0)
     Ncurses.noecho
-    Ncurses.timeout(0)
+    Ncurses.timeout(1)
 
     @list = List.new(Ncurses.stdscr)
     @buffer = ''
@@ -376,41 +382,50 @@ class ClientTerminal
 
   end
 
-  def process_buffer
-    @handles ||= [$stdin]
+  def consume_stdin(handles, fd)
+    loop do
+      begin
+        @buffer << fd.read_nonblock(512)
+      rescue EOFError
+        handles.delete(fd)
+        break
+      rescue IO::WaitReadable
+        break
+      end
+    end
 
-    return if @handles.empty? && @buffer.empty?
-
-    @list.locked do
-      unless @handles.empty?
-        # This select needs to be a small interval to make ncurses
-        # blocking getch responsive.
-        res = IO.select(@handles, [], [], 0.0001)
-        if res && res[0]
-          loop do
-            begin
-              @buffer << $stdin.read_nonblock(512)
-            rescue EOFError
-              @handles = []
-              break
-            rescue IO::WaitReadable
-              break
-            end
-          end
+    unless @buffer.empty?
+      used = 0
+      StringIO.new(@buffer).each_line do |line|
+        if line[-1] == "\n"
+          process_command(line.chomp)
+          used += line.size
+        else
+          break
         end
       end
+      @buffer = @buffer[used...-1]
+    end
+  end
 
-      unless @buffer.empty?
-        used = 0
-        StringIO.new(@buffer).each_line do |line|
-          if line[-1] == "\n"
-            process_command(line.chomp)
-            used += line.size
-          else
-            break
-          end
+  def consume_tty(handles, fd)
+    while (ch = Ncurses.getch) != -1
+      list.handle_input(ch)
+    end
+  end
+
+  def process_events
+    @handles ||= [$stdin, @tty]
+
+    return if @handles.empty?
+
+    @list.locked do
+      res = IO.select(@handles, nil, nil, nil)
+      if res && (readers = res[0])
+        readers.each do |fd|
+          consume_stdin(@handles, fd) if fd == $stdin
+          consume_tty(@handles, fd) if fd == @tty
         end
-        @buffer = @buffer[used...-1]
       end
     end
   end
@@ -421,13 +436,11 @@ class ClientTerminal
         # This greatly reduces performance, but works around
         # ncurses using an optimization that is incorrect, which
         # leads to the scrollbar background bleeding into the list.
-        process_buffer
-        while (ch = Ncurses.getch) != -1
-          list.handle_input(ch)
+        process_events
+        if list.render
+          Ncurses.redrawwin(list.window)
+          Ncurses.refresh
         end
-        list.render
-        Ncurses.redrawwin(list.window)
-        Ncurses.refresh
       end
     ensure
       deinitialize
