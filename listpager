@@ -101,6 +101,12 @@ class Scrollbar
 
     return if list.values.size <= maxy
 
+    window.color_set(Color[:list_default], nil)
+    (0...maxy).each do |y|
+      window.move(y, x-1)
+      window.addstr(' ')
+    end
+
     window.color_set(Color[:scroll_arrow], nil)
     window.move(0, x)
     window.addstr(UP_ARROW)
@@ -148,20 +154,7 @@ class List
     @selected = 0
     @offset = 0
     @dirty = true
-    @locked = false
     @scrollbar = Scrollbar.new(self)
-  end
-
-  def locked
-    fail ArgumentError, "block required" unless block_given?
-    @locked = true
-    yield
-  ensure
-    @locked = false
-  end
-
-  def locked?
-    @locked
   end
 
   def dirty!(value = true)
@@ -217,10 +210,8 @@ class List
     maxx, maxy = getmaxxy
 
     case value
-      when -1
-        return
       when Ncurses::KEY_RESIZE
-        window.clear
+        window.erase
         dirty!
       when Ncurses::KEY_UP
         self.selected -= 1
@@ -266,13 +257,8 @@ class List
     [maxx.first, maxy.first]
   end
 
-  def render()
+  def render
     return false unless dirty?
-    if locked?
-      dirty!(true)
-      return false
-    end
-
     dirty!(false)
 
     maxx, maxy = getmaxxy
@@ -316,6 +302,7 @@ class ClientTerminal
 
   def initialize
     @mode = :append
+    @alertfdr, @alertfdw = IO.pipe
 
     @tty = File.open('/dev/tty', 'r+')
 
@@ -330,7 +317,7 @@ class ClientTerminal
     Ncurses.stdscr.keypad(true)
     Ncurses.curs_set(0)
     Ncurses.noecho
-    Ncurses.timeout(1)
+    Ncurses.timeout(0)
 
     @list = List.new(Ncurses.stdscr)
     @buffer = ''
@@ -379,7 +366,6 @@ class ClientTerminal
         puts "error bad-command #{line}"
       end
     end
-
   end
 
   def consume_stdin(handles, fd)
@@ -410,32 +396,46 @@ class ClientTerminal
 
   def consume_tty(handles, fd)
     while (ch = Ncurses.getch) != -1
+
       list.handle_input(ch)
     end
   end
 
+  def consume_events(handles, fd)
+    case fd
+    when $stdin
+      consume_stdin(@handles, fd)
+    when @tty, @alertfdr
+      consume_tty(@handles, fd)
+    end
+  end
+
   def process_events
-    @handles ||= [$stdin, @tty]
+    @handles ||= [$stdin, @tty, @alertfdr]
 
     return if @handles.empty?
 
-    @list.locked do
-      res = IO.select(@handles, nil, nil, nil)
-      if res && (readers = res[0])
-        readers.each do |fd|
-          consume_stdin(@handles, fd) if fd == $stdin
-          consume_tty(@handles, fd) if fd == @tty
-        end
+    res = IO.select(@handles, nil, nil, 1.0)
+    if res && (readers = res[0])
+      readers.each do |fd|
+        consume_events(@handles, fd)
       end
     end
   end
 
   def run
+    trap('WINCH') {
+      @alertfdw.write('x')
+      @alertfdw.flush
+      dims = [0, 0, 0, 0].pack('SSSS')
+      @tty.ioctl(0x40087468, dims)
+      rows, cols, width, height = dims.unpack('SSSS')
+      Ncurses.resizeterm(rows, cols)
+      Ncurses.ungetch(Ncurses::KEY_RESIZE)
+    }
+
     begin
       loop do
-        # This greatly reduces performance, but works around
-        # ncurses using an optimization that is incorrect, which
-        # leads to the scrollbar background bleeding into the list.
         process_events
         if list.render
           Ncurses.redrawwin(list.window)
@@ -455,9 +455,9 @@ end
 
 begin
   ClientTerminal.new.run
-rescue Interrupt
-  $stdout.puts "interrupt"
-  $stdout.flush
+# rescue Interrupt
+#   $stdout.puts "interrupt"
+#   $stdout.flush
 rescue SystemCallError => e
   $stderr.puts "#{$0}: #{e.message}"
   exit 1
