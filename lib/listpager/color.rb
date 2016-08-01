@@ -8,6 +8,7 @@ module Listpager
       scroll_track: 2,
       scroll_thumb: 3,
       scroll_arrow: 4,
+      title: 5,
     }.freeze
 
     def self.curses_lookup(c)
@@ -24,6 +25,7 @@ module Listpager
       init_color(:scroll_track, :COLOR_BLACK, :COLOR_BLACK)
       init_color(:scroll_thumb, :COLOR_WHITE, :COLOR_WHITE)
       init_color(:scroll_arrow, :COLOR_WHITE, :COLOR_BLACK)
+      init_color(:title, :COLOR_BLACK, :COLOR_BLUE)
     end
 
     def self.[](name)

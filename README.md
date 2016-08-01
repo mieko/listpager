@@ -73,8 +73,13 @@ ask for statuses, manipulate the list, add badges, change captions, etc.
 
 ## Dependencies and Installation
 Install listpager with `gem install listpager`.  It has few dependencies:
-currently only `ncurses-ruby`.
+currently only `ncursesw`.  BUT IT DOESNT STOP THERE, of course:  For the
+gem to build on a fresh Ubuntu, you'll need the following for widechar-
+supporting libncurses development headers:
 
+```bash
+sudo apt install libncursesw5-dev
+```
 
 ## Implementation Notes
 curses is terrible but portable.  'curses' doesn't expose enough to be useful,

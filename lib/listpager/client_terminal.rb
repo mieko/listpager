@@ -54,36 +54,41 @@ module Listpager
       @mode == :append
     end
 
-    def process_command(line)
-      if append_mode?
-        case line
-        when '\%%'
-          list.values.push('%%')
+    def process_command(argv)
+      cmd, *args = argv
+      case cmd
+        when 'append-mode', '%'
+          @mode = :append
+        when 'title'
+          @list.title = args[0]
+        when 'clear'
+          @list.values = []
+          @list.selected = 0
           list.dirty!
-        when '%%'
+        when 'get-selected'
+          list.selection_changed
+        when 'select'
+          list.selected = args.fetch(0).to_i
+        when 'get-item'
+          puts ["item", args.fetch(0), list.values[args.fetch(0).to_i]].join ' '
+        when 'quit'
+          raise Interrupt
+      end
+    end
+
+    def process_line(line)
+      if append_mode?
+        if line == '%%'
           @mode = :command
+        elsif line[0] == '%'
+          cmd = Shellwords.split(line[1..-1])
+          process_command(cmd)
         else
           list.values.push(line)
           list.dirty!
         end
       else
-        cmd, *args = Shellwords.split(line)
-        begin
-          case cmd
-            when '%%', 'append-mode'
-              @mode = :append
-            when 'get-selected'
-              list.selection_changed
-            when 'select'
-              list.selected = args.fetch(0).to_i
-            when 'get-item'
-              puts ["item", args.fetch(0), list.values[args.fetch(0).to_i]].join ' '
-            when 'quit'
-              raise Interrupt
-          end
-        rescue IndexError => e
-          puts "error bad-command #{line}"
-        end
+        process_command(Shellwords.split(line))
       end
     end
 
@@ -103,7 +108,7 @@ module Listpager
         used = 0
         StringIO.new(@buffer).each_line do |line|
           if line[-1] == "\n"
-            process_command(line.chomp)
+            process_line(line.chomp)
             used += line.size
           else
             break

@@ -26,9 +26,11 @@ module Listpager
     attr_reader :selected
     attr_reader :offset
     attr_reader :scrollbar
+    attr_reader :title
 
     def initialize(window)
       @window = window
+      @title = nil
       @values = []
       @selected = 0
       @offset = 0
@@ -44,17 +46,29 @@ module Listpager
       @dirty
     end
 
+    def title=(v)
+      if v != @title
+        @title = v
+        dirty!
+      end
+      @title
+    end
+
     def offset=(v)
       dirty! if v != @offset
+      v = 0 if v < 0
       @offset = v
     end
 
     attr_reader :selected
     def selected=(v)
+      minx, miny = getminxy
       maxx, maxy = getmaxxy
 
       v = [0, v, values.size - 1].sort[1]
-      self.offset = [v - maxy + 1, offset, v].sort[1]
+      screenh = maxy - miny
+
+      self.offset = [v + miny - 1, offset, (v + miny + 1) - screenh].sort[1]
 
       if v != @selected
         dirty!
@@ -102,21 +116,45 @@ module Listpager
       s.gsub(/[^[:print:]]/, '')
     end
 
+    def getminxy
+      x, y = 0, 0
+      y += 1 if title
+      [x, y]
+    end
+
     def getmaxxy
       maxx, maxy = [], []
       window.getmaxyx(maxy, maxx)
       [maxx[0], maxy[0]]
     end
 
+    def space_pad(s, w)
+      nspaces = (w - s.size)
+      nspaces = 0 if nspaces < 0
+      s + (BLANK_SPACE * (w - s.size))
+    end
+
+    def render_title
+      maxx, maxy = getmaxxy
+      if title
+        window.color_set(Color[:title], nil)
+        window.move(0, 0)
+        window.addstr(space_pad(' ' + title, maxx))
+      end
+    end
+
     def render
       return false if ! dirty?
 
-      maxx, maxy = getmaxxy
+      render_title
 
-      (0...maxy).each do |i|
+      maxx, maxy = getmaxxy
+      minx, miny = getminxy
+
+      (miny...maxy).each do |i|
         window.color_set(Color[:list_default], nil)
 
-        list_index = offset + i
+        list_index = (offset + i) - miny
         window.move(i, 0)
         indicator = nil
 
