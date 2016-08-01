@@ -1,4 +1,4 @@
-require 'ncurses'
+require 'listpager/ncurses'
 require 'shellwords'
 require 'optparse'
 require 'io/console'

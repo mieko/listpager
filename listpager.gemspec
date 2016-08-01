@@ -27,7 +27,17 @@ Gem::Specification.new do |spec|
   spec.executables   = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
-  spec.add_runtime_dependency "ncurses-ruby", "~> 1.2.4"
+  # Check out the hack in ext/mkrf_conf.rb, which is effectively:
+  #
+  # if RUBY_PLATFORM =~ /\bdarwin/
+  #   spec.add_runtime_dependency 'ncurses-ruby'
+  # else
+  #   # Doesn't build on newer macOS...
+  #   spec.add_runtime_dependency 'ncursesw'
+  # end
+  #
+  # A PR has been submitted to ncursesw, so hopefully this can go away soon.
+
   spec.add_development_dependency "bundler", "~> 1.12"
   spec.add_development_dependency "rake", "~> 10.0"
 end

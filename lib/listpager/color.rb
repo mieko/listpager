@@ -1,4 +1,4 @@
-require 'ncurses'
+require 'listpager/ncurses'
 
 module Listpager
   class Color

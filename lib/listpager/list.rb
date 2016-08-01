@@ -1,4 +1,4 @@
-require 'ncurses'
+require 'listpager/ncurses'
 
 require 'listpager/color'
 require 'listpager/scrollbar'

@@ -1,3 +1,5 @@
+require 'listpager/ncurses'
+
 require 'listpager/color'
 
 module Listpager
