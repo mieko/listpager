@@ -72,8 +72,8 @@ ask for statuses, manipulate the list, add badges, change captions, etc.
 
 
 ## Dependencies and Installation
-listpager requires Ruby, and the `ncurses-ruby` gem.  It'll be properly packaged
-when it has a bit more functionality.
+Install listpager with `gem install listpager`.  It has few dependencies:
+currently only `ncurses-ruby`.
 
 
 ## Implementation Notes
@@ -85,8 +85,8 @@ curses is terrible but portable.  'curses' doesn't expose enough to be useful,
 Right now, listpager does exactly what Cult needs, and nothing more.  For it to
 be more functional, I'd like to add a few features:
 
-  * `listpager -1`, for displaying a list and just outputting the one item the
-    user selected with enter, ala Zenity/dialog.
+  * `listpager -1`, for displaying a list, and just outputting the first item
+    the user selected with enter, ala Zenity/dialog.
   * A search/filter activated with the `/` key
   * Mouse support, with scroll wheels.
   * Checkboxes
@@ -94,12 +94,15 @@ be more functional, I'd like to add a few features:
 
 
 ## Contributing
-I'm trying to keep listpager a single-file, small project, preferably under 500
-lines of code. If you use listpager and know Ruby, please dig in and PR.
+~~I'm trying to keep listpager a single-file, small project, preferably under
+500 lines of code.~~ I've given up on the idea that this can be functional,
+correct, and maintainable in a single file that can be copied to a bin
+directory. If you use listpager and know Ruby, please dig in and PR at its
+github: https://github.com/mieko/listpager
 
 
 ## License
-listpager is released unter the MIT license.
+listpager is released under the MIT license.  Check out LICENSE.txt
 
 
 ## Authors

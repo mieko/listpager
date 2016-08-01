@@ -1,8 +1,13 @@
 #!/usr/bin/env ruby
-require_relative './client_terminal'
+require 'listpager/client_terminal'
+
+[$stdin, $stdout].each do |io|
+  io.sync = true
+  io.reopen('/dev/null') if io.tty?
+end
 
 begin
-  ClientTerminal.new.run
+  Listpager::ClientTerminal.new.run
 rescue Interrupt
   $stdout.puts "interrupt"
   $stdout.flush
