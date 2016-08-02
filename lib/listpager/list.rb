@@ -13,12 +13,10 @@ module Listpager
     # get smarter and also consider this "blank" for optimizations.
     BLANK_SPACE  = ' '
 
-    def on_select_change
-      puts "select #{selected} #{values[selected]}"
+    def on_select_change(i)
     end
 
     def on_key_press(k)
-      puts "keypress #{key_name(k)} #{selected} #{values[selected]}"
     end
 
     attr_reader :window
@@ -72,24 +70,13 @@ module Listpager
 
       if v != @selected
         dirty!
-        on_select_change
+        @selected = v
+        on_select_change(v)
       end
 
-      return (@selected = v)
+      return @selected
     end
 
-    def key_name(v)
-      @m ||= {
-        27  => 'esc',
-        10  => 'enter',
-        260 => 'left',
-        261 => 'right',
-        127 => 'backspace',
-        330 => 'delete',
-        ' ' => 'space',
-      }
-      @m[v] || (v < 255 && v.chr.match(/[[:print:]]/) ? v.chr : "\##{v}")
-    end
 
     def key_input(value)
       maxx, maxy = getmaxxy

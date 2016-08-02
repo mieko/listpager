@@ -24,8 +24,34 @@ module Listpager
       initialize_curses
 
       @list = List.new(Ncurses.stdscr)
+      connect_list
+
       @mode = :append
       @buffer = ''
+    end
+
+    def key_name(v)
+      @m ||= {
+        27  => 'esc',
+        10  => 'enter',
+        260 => 'left',
+        261 => 'right',
+        127 => 'backspace',
+        330 => 'delete',
+        ' ' => 'space',
+      }
+      @m[v] || (v < 255 && v.chr.match(/[[:print:]]/) ? v.chr : "\##{v}")
+    end
+
+    def connect_list
+      cterm = self
+      list.define_singleton_method :on_select_change do |i|
+        cterm.cmd! 'select', i, values[i]
+      end
+
+      list.define_singleton_method :on_key_press do |k|
+        cterm.cmd! 'key-press', cterm.key_name(k)
+      end
     end
 
     def initialize_curses
@@ -54,6 +80,11 @@ module Listpager
       @mode == :append
     end
 
+    def cmd!(*args)
+      $stdout.puts Shellwords.join(args.map(&:to_s))
+      $stdout.flush
+    end
+
     def process_command(argv)
       cmd, *args = argv
       case cmd
@@ -66,11 +97,11 @@ module Listpager
           @list.selected = 0
           list.dirty!
         when 'get-selected'
-          list.selection_changed
+          cmd!('select', list.selected, list.values[list.selected])
         when 'select'
           list.selected = args.fetch(0).to_i
         when 'get-item'
-          puts ["item", args.fetch(0), list.values[args.fetch(0).to_i]].join ' '
+          cmd! 'item', args.fetch(0), list.values[args.fetch(0).to_i]
         when 'quit'
           raise Interrupt
       end
