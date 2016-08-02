@@ -16,7 +16,10 @@ interactive mode is a specially-crafted tmux session consisting of tools that
 talk to each other.  listpager is the node selection widget.
 
 So basically, you may want to `popen` listpager, print a list of somethings to
-its `stdin`, and listen on its `stdout`.
+its `stdin`, and listen on its `stdout`.  It'll go something like this:
+
+![socat Listpager session](/doc/netcat-example.gif?raw=true "Controlling Listpager via TCP")
+
 
 ```ruby
 listpager = IO.popen('listpager', 'r+')

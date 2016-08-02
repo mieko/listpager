@@ -2,6 +2,7 @@ require 'ncursesw'
 require 'shellwords'
 require 'optparse'
 require 'io/console'
+require 'io/nonblock'
 
 require 'listpager/color'
 require 'listpager/list'
@@ -48,7 +49,7 @@ module Listpager
     def connect_list
       cterm = self
       list.define_singleton_method :on_select_change do
-        cterm.cmd!('is-selected', selected, selected_value, observe_lock: true)
+        cterm.cmd!('selected-is', selected, selected_value, observe_lock: true)
       end
 
       list.define_singleton_method :on_key_press do |k|
@@ -104,6 +105,7 @@ module Listpager
           list.values = []
           list.selected = 0
           list.dirty!
+          wake_up
 
         when 'append'
           list.values.push(args.fetch(0))
@@ -131,12 +133,22 @@ module Listpager
           cmd! 'selected-is', list.selected, list.selected_value
         when 'set-selected'
           list.selected = args.fetch(0).to_i
-          cmd! 'seleted-is', list.selected, list.selected_value
 
         when 'get-item'
           cmd! 'item-is', args.fetch(0), list.values[args.fetch(0).to_i]
         when 'set-item'
-          cmd! 'item-is'
+          list.values[args.fetch(0).to_i] = args.fetch(1)
+          list.dirty!
+          cmd! 'item-is', args.fetch(0), list.values[args.fetch(0).to_i]
+      end
+    end
+
+    def wake_up
+      self_pipe[1].tap do |fd|
+        fd.nonblock do
+          fd.write('R')
+          fd.flush
+        end
       end
     end
 
@@ -226,10 +238,7 @@ module Listpager
 
     def run
       trap 'WINCH' do
-        self_pipe[1].tap do |fd|
-          fd.write 'R'
-          fd.flush
-        end
+        wake_up
       end
 
       begin

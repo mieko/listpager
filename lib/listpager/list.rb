@@ -122,7 +122,7 @@ module Listpager
     def space_pad(s, w)
       nspaces = (w - s.size)
       nspaces = 0 if nspaces < 0
-      s + (BLANK_SPACE * (w - s.size))
+      s + (BLANK_SPACE * nspaces)
     end
 
     def render_title
