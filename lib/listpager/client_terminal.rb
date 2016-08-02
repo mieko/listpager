@@ -12,9 +12,12 @@ module Listpager
     attr_reader :self_pipe
     attr_reader :list
 
+    attr_reader :locked
+
     def initialize
       @tty = File.open('/dev/tty', 'r+')
       @self_pipe = IO.pipe
+      @locked = false
 
       [@tty, *self_pipe].each do |io|
         io.sync = true
@@ -26,6 +29,7 @@ module Listpager
       connect_list
 
       @buffer = ''
+      @locked_buffer = []
     end
 
     def key_name(v)
@@ -44,12 +48,12 @@ module Listpager
     def connect_list
       cterm = self
       list.define_singleton_method :on_select_change do
-        cterm.cmd! 'is-selected', selected, selected_value
+        cterm.cmd!('is-selected', selected, selected_value, observe_lock: true)
       end
 
       list.define_singleton_method :on_key_press do |k|
-        cterm.cmd! 'key-pressed', cterm.key_name(k),
-                   selected, selected_value
+        cterm.cmd!('key-pressed', cterm.key_name(k),
+                   selected, selected_value, observe_lock: true)
       end
     end
 
@@ -75,14 +79,24 @@ module Listpager
       @tty.close
     end
 
-    def cmd!(*args)
-      $stdout.puts Shellwords.join(args.map(&:to_s))
-      $stdout.flush
+    def line!(line, observe_lock: false)
+      if observe_lock && @locked
+        @locked_buffer.push(line)
+      else
+        $stdout.puts line
+        $stdout.flush
+      end
+    end
+
+    def cmd!(*args, observe_lock: false)
+      line!('%' + Shellwords.join(args.map(&:to_s)),
+            observe_lock: observe_lock)
     end
 
     def process_command(argv)
       cmd, *args = argv
       case cmd
+        # TODO: This to be refactored into CommandProcessor
         when 'quit'
           raise Interrupt
 
@@ -94,6 +108,18 @@ module Listpager
         when 'append'
           list.values.push(args.fetch(0))
           list.dirty!
+
+        when 'lock'
+          @locked = true
+          cmd! 'lock'
+
+        when 'unlock'
+          @locked = false
+          cmd! 'unlock'
+          @locked_buffer.each do |line|
+            line!(line)
+          end
+          @locked_buffer = []
 
         when 'get-title'
           cmd! 'title-is', @list.title
