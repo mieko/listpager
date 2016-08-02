@@ -11,7 +11,6 @@ module Listpager
     attr_reader :tty
     attr_reader :self_pipe
     attr_reader :list
-    attr_reader :mode
 
     def initialize
       @tty = File.open('/dev/tty', 'r+')
@@ -26,7 +25,6 @@ module Listpager
       @list = List.new(Ncurses.stdscr)
       connect_list
 
-      @mode = :append
       @buffer = ''
     end
 
@@ -45,12 +43,13 @@ module Listpager
 
     def connect_list
       cterm = self
-      list.define_singleton_method :on_select_change do |i|
-        cterm.cmd! 'select', i, values[i]
+      list.define_singleton_method :on_select_change do
+        cterm.cmd! 'is-selected', selected, selected_value
       end
 
       list.define_singleton_method :on_key_press do |k|
-        cterm.cmd! 'key-press', cterm.key_name(k)
+        cterm.cmd! 'key-pressed', cterm.key_name(k),
+                   selected, selected_value
       end
     end
 
@@ -76,10 +75,6 @@ module Listpager
       @tty.close
     end
 
-    def append_mode?
-      @mode == :append
-    end
-
     def cmd!(*args)
       $stdout.puts Shellwords.join(args.map(&:to_s))
       $stdout.flush
@@ -88,38 +83,47 @@ module Listpager
     def process_command(argv)
       cmd, *args = argv
       case cmd
-        when 'append-mode', '%'
-          @mode = :append
-        when 'title'
-          @list.title = args[0]
-        when 'clear'
-          @list.values = []
-          @list.selected = 0
-          list.dirty!
-        when 'get-selected'
-          cmd!('select', list.selected, list.values[list.selected])
-        when 'select'
-          list.selected = args.fetch(0).to_i
-        when 'get-item'
-          cmd! 'item', args.fetch(0), list.values[args.fetch(0).to_i]
         when 'quit'
           raise Interrupt
+
+        when 'clear'
+          list.values = []
+          list.selected = 0
+          list.dirty!
+
+        when 'append'
+          list.values.push(args.fetch(0))
+          list.dirty!
+
+        when 'get-title'
+          cmd! 'title-is', @list.title
+        when 'set-title'
+          @list.title = args[0]
+          cmd! 'title-is', @list.title
+
+        when 'get-selected'
+          cmd! 'selected-is', list.selected, list.selected_value
+        when 'set-selected'
+          list.selected = args.fetch(0).to_i
+          cmd! 'seleted-is', list.selected, list.selected_value
+
+        when 'get-item'
+          cmd! 'item-is', args.fetch(0), list.values[args.fetch(0).to_i]
+        when 'set-item'
+          cmd! 'item-is'
       end
     end
 
     def process_line(line)
-      if append_mode?
-        if line == '%%'
-          @mode = :command
-        elsif line[0] == '%'
-          cmd = Shellwords.split(line[1..-1])
-          process_command(cmd)
-        else
-          list.values.push(line)
-          list.dirty!
-        end
+      if line[0] == '%' && line[1] != '%'
+        cmd = Shellwords.split(line[1..-1])
+        process_command(cmd)
       else
-        process_command(Shellwords.split(line))
+        if line[0] == '%'
+          line = line[1..-1]
+        end
+        list.values.push(line)
+        list.dirty!
       end
     end
 

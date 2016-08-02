@@ -28,9 +28,7 @@ listpager.sync = true
   listpager.puts "Item #{i}"
 end
 
-# Enter command mode.
-listpager.puts "%%"
-listpager.puts "select 35"
+listpager.puts "%set-selected 35"
 ```
 
 If you want to play with the protocol, it's easiest to use two terminals and
@@ -48,27 +46,19 @@ And a "client", like:
 socat TCP:localhost:4500 -
 ```
 
-Add some items on your keyboard, then enter `%%` to enter command mode.  Another
-`%%` will put you back in command mode.  If you need a literal `%%` list item,
-escape it with `\%%`.  If you need a literal `\\%%`, you're out of luck, because
-complete escaping isn't available yet.
+Add some items on your keyboard, then enter some commands, prefixed by `%`.  If
+you need an item that starts with a liter `%`, start it with `%%`.
 
 There are a lot of obvious things the protocol could do, that it doesn't
-currently.  It's way low-hanging fruit for any contributors (`clear`, `rename`,
-`move`, etc.)
+currently.  It's way low-hanging fruit for any contributors.
 
 ## Protocol
 listpager reads each item from stdin, and it becomes a list item.  As the user
 arrows through the list, it outputs messages like:
 
-`select 21 apples` where `21` is the index into the list, and `abacate` is the
-caption.  Any other keys pressed on an item are written out like
+`is-selected 21 apples` where `21` is the index into the list, and `apples` is
+the caption.  Any other keys pressed on an item are written out like
 `keypress enter apples`.
-
-listpager stops considering input bulk list items once it sees: `%%`, where it
-enters command mode.  Currently, command mode does nothing, but in the future,
-it will allow the calling program to instruct listpager to select certain items,
-ask for statuses, manipulate the list, add badges, change captions, etc.
 
 
 ## Dependencies and Installation
@@ -83,7 +73,7 @@ sudo apt install libncursesw5-dev
 
 ## Implementation Notes
 curses is terrible but portable.  'curses' doesn't expose enough to be useful,
-'ncurses-ruby' is about as good as you'll do in Ruby.
+'ncursesw' is about as good as you'll do in Ruby.
 
 
 ## Upcoming Features
@@ -96,6 +86,7 @@ be more functional, I'd like to add a few features:
   * Mouse support, with scroll wheels.
   * Checkboxes
   * Extend command mode
+  * `Listpager::Client`
 
 
 ## Contributing

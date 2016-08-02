@@ -13,7 +13,7 @@ module Listpager
     # get smarter and also consider this "blank" for optimizations.
     BLANK_SPACE  = ' '
 
-    def on_select_change(i)
+    def on_select_change
     end
 
     def on_key_press(k)
@@ -71,10 +71,14 @@ module Listpager
       if v != @selected
         dirty!
         @selected = v
-        on_select_change(v)
+        on_select_change
       end
 
       return @selected
+    end
+
+    def selected_value
+      values[selected]
     end
 
 
